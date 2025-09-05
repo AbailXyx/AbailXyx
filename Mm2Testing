@@ -1,0 +1,257 @@
+--// OrionLib
+local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/AbailXyx/Hacker/refs/heads/main/Codes"))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ESP Flags
+local ESP = { All=false, Innocent=false, Sheriff=false, Murder=false }
+
+-- Warna role
+local Colors = {
+    Murder = Color3.fromRGB(255,0,0),
+    Innocent = Color3.fromRGB(0,255,0),
+    Sheriff = Color3.fromRGB(0,0,255),
+    Gun = Color3.fromRGB(160,32,240)
+}
+
+-- Table simpan ESP object
+local ESPObjects = {}
+
+-- ====== ESP FUNCTIONS ======
+local function ensureESPOnPart(part, text, color, owner)
+    if not part or not part:IsA("BasePart") then return end
+    local entry = ESPObjects[part]
+    if entry and entry.Label and entry.Label.Parent then
+        entry.Label.Text = text
+        entry.Label.TextColor3 = color
+        entry.Owner = owner
+        return
+    end
+    local gui = Instance.new("BillboardGui")
+    gui.Name = "GX_ESP"
+    gui.Adornee = part
+    gui.Size = UDim2.new(0,140,0,30)
+    gui.AlwaysOnTop = true
+    gui.MaxDistance = 10000
+
+    local label = Instance.new("TextLabel")
+    label.Name = "GX_Label"
+    label.Size = UDim2.new(1,0,1,0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = color
+    label.TextStrokeTransparency = 0.5
+    label.Font = Enum.Font.SourceSansBold
+    label.TextScaled = true
+    label.Parent = gui
+
+    gui.Parent = part:FindFirstAncestorWhichIsA("Model") or part
+    ESPObjects[part] = { Gui=gui, Label=label, Owner=owner }
+end
+
+local function removeESPOnPart(part)
+    if not part then return end
+    local entry = ESPObjects[part]
+    if entry and entry.Gui and entry.Gui.Parent then
+        entry.Gui:Destroy()
+    end
+    ESPObjects[part] = nil
+end
+
+local function removeAllForPlayer(plr)
+    for part,entry in pairs(ESPObjects) do
+        if entry.Owner == plr then
+            removeESPOnPart(part)
+        end
+    end
+end
+
+local function getPlayerAdornee(plr)
+    if not plr.Character then return nil end
+    return plr.Character:FindFirstChild("Head") or plr.Character:FindFirstChild("HumanoidRootPart")
+end
+
+local function getRole(plr)
+    if not plr then return "Innocent" end
+    if plr.Backpack:FindFirstChild("Knife") or (plr.Character and plr.Character:FindFirstChild("Knife")) then
+        return "Murder"
+    end
+    if plr.Backpack:FindFirstChild("Gun") or (plr.Character and plr.Character:FindFirstChild("Gun")) then
+        return "Sheriff"
+    end
+    return "Innocent"
+end
+
+-- ESP Loop
+RunService.RenderStepped:Connect(function()
+    for _,plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local adornee = getPlayerAdornee(plr)
+            local role = getRole(plr)
+            local shouldShow = false
+            if ESP.All then
+                shouldShow = true
+            else
+                if role=="Murder" and ESP.Murder then shouldShow=true end
+                if role=="Sheriff" and ESP.Sheriff then shouldShow=true end
+                if role=="Innocent" and ESP.Innocent then shouldShow=true end
+            end
+            if adornee then
+                if shouldShow then
+                    ensureESPOnPart(adornee, plr.Name.." ["..role.."]", Colors[role], plr)
+                else
+                    removeESPOnPart(adornee)
+                end
+            else
+                removeAllForPlayer(plr)
+            end
+        end
+    end
+    for _,obj in pairs(workspace:GetChildren()) do
+        if obj.Name=="GunDrop" then
+            local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildWhichIsA("BasePart")
+            if handle then
+                local showGun = (ESP.All or ESP.Sheriff)
+                if showGun then
+                    ensureESPOnPart(handle, "[Gun]", Colors.Gun, nil)
+                else
+                    removeESPOnPart(handle)
+                end
+            end
+        end
+    end
+end)
+
+-- cleanup
+Players.PlayerRemoving:Connect(removeAllForPlayer)
+for _,plr in pairs(Players:GetPlayers()) do
+    plr.CharacterAdded:Connect(function() wait(0.2) removeAllForPlayer(plr) end)
+end
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function() wait(0.2) removeAllForPlayer(plr) end)
+end)
+
+-- Orion GUI
+local Window = OrionLib:MakeWindow({Name="MM2 GX Utility", HidePremium=true})
+
+-- TAB ESP
+local TabESP = Window:MakeTab({Name="ESP", Icon="rbxassetid://4483345998", PremiumOnly=false})
+TabESP:AddToggle({Name="ESP All", Default=false, Callback=function(v) ESP.All=v end})
+TabESP:AddToggle({Name="ESP Innocent", Default=false, Callback=function(v) ESP.Innocent=v end})
+TabESP:AddToggle({Name="ESP Sheriff", Default=false, Callback=function(v) ESP.Sheriff=v end})
+TabESP:AddToggle({Name="ESP Murder", Default=false, Callback=function(v) ESP.Murder=v end})
+
+-- TAB MISC
+local TabMisc = Window:MakeTab({Name="Misc", Icon="rbxassetid://4483345998", PremiumOnly=false})
+local SpeedCFrame = {Enabled=false, Value=2}
+TabMisc:AddToggle({Name="CFrame Speed", Default=false, Callback=function(v) SpeedCFrame.Enabled=v end})
+TabMisc:AddSlider({Name="Speed Value", Min=1, Max=10, Default=2, Increment=1, ValueName="Studs", Callback=function(v) SpeedCFrame.Value=v end})
+
+RunService.Heartbeat:Connect(function()
+    if SpeedCFrame.Enabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = LocalPlayer.Character.HumanoidRootPart
+        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            local dir = humanoid.MoveDirection
+            if dir.Magnitude > 0 then
+                hrp.CFrame = hrp.CFrame + dir * SpeedCFrame.Value
+            end
+        end
+    end
+end)
+
+local Noclip=false
+TabMisc:AddToggle({Name="Noclip", Default=false, Callback=function(v) Noclip=v end})
+RunService.Stepped:Connect(function()
+    if Noclip and LocalPlayer.Character then
+        for _,part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide=false
+            end
+        end
+    end
+end)
+
+local InfiniteJump=false
+TabMisc:AddToggle({Name="Infinite Jump", Default=false, Callback=function(v) InfiniteJump=v end})
+UserInputService.JumpRequest:Connect(function()
+    if InfiniteJump and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+    end
+end)
+
+-- Lag All Fake
+local FakeLag=false
+local LagDelay=1
+TabMisc:AddToggle({Name="Lag All (Fake)", Default=false, Callback=function(v) FakeLag=v end})
+TabMisc:AddSlider({Name="Lag Delay", Min=1, Max=5, Default=1, Increment=1, ValueName="Seconds", Callback=function(v) LagDelay=v end})
+
+RunService.RenderStepped:Connect(function()
+    if FakeLag then
+        for _,plr in pairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local hrp = plr.Character.HumanoidRootPart
+                hrp.Anchored = true
+                task.delay(LagDelay, function()
+                    if FakeLag and hrp then
+                        hrp.Anchored = false
+                    end
+                end)
+            end
+        end
+    end
+end)
+
+-- TAB HITBOX
+local TabHitbox = Window:MakeTab({Name="Hitbox", Icon="rbxassetid://4483345998", PremiumOnly=false})
+local HitboxEnabled=false
+local HitboxSize=5
+local HitboxTransparency=0.5
+
+TabHitbox:AddToggle({
+    Name="Hitbox Expander",
+    Default=false,
+    Callback=function(v) HitboxEnabled=v end
+})
+
+TabHitbox:AddSlider({
+    Name="Hitbox Size",
+    Min=2,
+    Max=15,
+    Default=5,
+    Increment=1,
+    ValueName="Size",
+    Callback=function(v) HitboxSize=v end
+})
+
+TabHitbox:AddSlider({
+    Name="Hitbox Transparency",
+    Min=0,
+    Max=10,
+    Default=5,
+    Increment=1,
+    ValueName="0-1",
+    Callback=function(v) HitboxTransparency=v/10 end
+})
+
+-- Loop apply hitbox
+RunService.RenderStepped:Connect(function()
+    for _,plr in pairs(Players:GetPlayers()) do
+        if plr~=LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp=plr.Character.HumanoidRootPart
+            if HitboxEnabled then
+                hrp.Size=Vector3.new(HitboxSize,HitboxSize,HitboxSize)
+                hrp.Transparency=HitboxTransparency
+                hrp.CanCollide=false
+            else
+                hrp.Size=Vector3.new(2,2,1)
+                hrp.Transparency=1
+            end
+        end
+    end
+end)
+
+OrionLib:Init()

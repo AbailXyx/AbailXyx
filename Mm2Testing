@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
 -- ESP Flags
 local ESP = { All=false, Innocent=false, Sheriff=false, Murder=false }
@@ -79,6 +80,427 @@ local function getRole(plr)
     if plr.Backpack:FindFirstChild("Knife") or (plr.Character and plr.Character:FindFirstChild("Knife")) then
         return "Murder"
     end
+    if plr.Backpack:FindFirstChild("Gun") or (plr.Character and plr.Character:FindFirstChild("Gun")) then
+        return "Sheriff"
+    end
+    return "Innocent"
+end
+
+-- ESP Loop
+RunService.RenderStepped:Connect(function()
+    for _,plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local adornee = getPlayerAdornee(plr)
+            local role = getRole(plr)
+            local shouldShow = false
+            if ESP.All then
+                shouldShow = true
+            else
+                if role=="Murder" and ESP.Murder then shouldShow=true end
+                if role=="Sheriff" and ESP.Sheriff then shouldShow=true end
+                if role=="Innocent" and ESP.Innocent then shouldShow=true end
+            end
+            if adornee then
+                if shouldShow then
+                    ensureESPOnPart(adornee, plr.Name.." ["..role.."]", Colors[role], plr)
+                else
+                    removeESPOnPart(adornee)
+                end
+            else
+                removeAllForPlayer(plr)
+            end
+        end
+    end
+    for _,obj in pairs(workspace:GetChildren()) do
+        if obj.Name=="GunDrop" then
+            local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildWhichIsA("BasePart")
+            if handle then
+                local showGun = (ESP.All or ESP.Sheriff)
+                if showGun then
+                    ensureESPOnPart(handle, "[Gun]", Colors.Gun, nil)
+                else
+                    removeESPOnPart(handle)
+                end
+            end
+        end
+    end
+end)
+
+-- cleanup
+Players.PlayerRemoving:Connect(removeAllForPlayer)
+for _,plr in pairs(Players:GetPlayers()) do
+    plr.CharacterAdded:Connect(function() wait(0.2) removeAllForPlayer(plr) end)
+end
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function() wait(0.2) removeAllForPlayer(plr) end)
+end)
+
+-- Orion GUI
+local Window = OrionLib:MakeWindow({Name="MM2 GX Utility", HidePremium=true})
+
+-- TAB ESP
+local TabESP = Window:MakeTab({Name="ESP", Icon="rbxassetid://4483345998", PremiumOnly=false})
+TabESP:AddToggle({Name="ESP All", Default=false, Callback=function(v) ESP.All=v end})
+TabESP:AddToggle({Name="ESP Innocent", Default=false, Callback=function(v) ESP.Innocent=v end})
+TabESP:AddToggle({Name="ESP Sheriff", Default=false, Callback=function(v) ESP.Sheriff=v end})
+TabESP:AddToggle({Name="ESP Murder", Default=false, Callback=function(v) ESP.Murder=v end})
+
+-- TAB MISC
+local TabMisc = Window:MakeTab({Name="Misc", Icon="rbxassetid://4483345998", PremiumOnly=false})
+
+-- CFrame Speed
+local SpeedCFrame = {Enabled=false, Value=2}
+TabMisc:AddToggle({Name="CFrame Speed", Default=false, Callback=function(v) SpeedCFrame.Enabled=v end})
+TabMisc:AddSlider({Name="Speed Value", Min=1, Max=10, Default=2, Increment=1, ValueName="Studs", Callback=function(v) SpeedCFrame.Value=v end})
+
+RunService.Heartbeat:Connect(function()
+    if SpeedCFrame.Enabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = LocalPlayer.Character.HumanoidRootPart
+        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            local dir = humanoid.MoveDirection
+            if dir.Magnitude > 0 then
+                hrp.CFrame = hrp.CFrame + dir * SpeedCFrame.Value
+            end
+        end
+    end
+end)
+
+-- 🌐 Float Variables
+local floatBlock
+local bodyPos
+local floatActive = false
+local updateConn
+
+-- 🧹 Cleanup
+local function cleanFloat()
+    if updateConn then updateConn:Disconnect() end
+    if bodyPos then bodyPos:Destroy() end
+    if floatBlock then floatBlock:Destroy() end
+
+    bodyPos = nil
+    floatBlock = nil
+    updateConn = nil
+    floatActive = false
+end
+
+-- 🎮 Toggle di Tab Misc
+TabMisc:AddToggle({
+    Name = "Float",
+    Default = false,
+    Callback = function(state)
+        floatActive = state
+        if floatActive then
+            local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local rootPart = char:WaitForChild("HumanoidRootPart")
+            local humanoid = char:WaitForChild("Humanoid")
+
+            -- Buat block
+            floatBlock = Instance.new("Part")
+            floatBlock.Size = Vector3.new(6, 1, 6)
+            floatBlock.Anchored = true
+            floatBlock.CanCollide = true
+            floatBlock.Transparency = 0.3
+            floatBlock.Material = Enum.Material.Neon
+            floatBlock.BrickColor = BrickColor.new("Bright green")
+            floatBlock.Parent = workspace
+
+            -- Buat BodyPosition
+            bodyPos = Instance.new("BodyPosition")
+            bodyPos.MaxForce = Vector3.new(0, 0, 0) -- mulai 0
+            bodyPos.P = 10000
+            bodyPos.D = 1000
+            bodyPos.Parent = rootPart
+
+            -- Update loop
+            updateConn = RunService.Heartbeat:Connect(function()
+                if not (floatBlock and rootPart and bodyPos) then return end
+
+                local isJumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping 
+                               or humanoid:GetState() == Enum.HumanoidStateType.Freefall
+
+                if isJumping then
+                    bodyPos.MaxForce = Vector3.new(0, 0, 0) -- jangan tahan saat lompat
+                else
+                    bodyPos.Position = rootPart.Position
+                    bodyPos.MaxForce = Vector3.new(0, math.huge, 0) -- tahan vertikal
+                end
+
+                -- block selalu di bawah kaki
+                floatBlock.CFrame = CFrame.new(rootPart.Position - Vector3.new(0, 3.5, 0))
+            end)
+        else
+            cleanFloat()
+        end
+    end
+})
+
+
+-- Noclip
+local Noclip=false
+TabMisc:AddToggle({Name="Noclip", Default=false, Callback=function(v) Noclip=v end})
+RunService.Stepped:Connect(function()
+    if Noclip and LocalPlayer.Character then
+        for _,part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide=false
+            end
+        end
+    end
+end)
+
+-- Infinite Jump
+local InfiniteJump=false
+TabMisc:AddToggle({Name="Infinite Jump", Default=false, Callback=function(v) InfiniteJump=v end})
+UserInputService.JumpRequest:Connect(function()
+    if InfiniteJump and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+    end
+end)
+
+-- Lag All Fake
+local FakeLag=false
+local LagDelay=1
+TabMisc:AddToggle({Name="Lag All (Fake)", Default=false, Callback=function(v) FakeLag=v end})
+TabMisc:AddSlider({Name="Lag Delay", Min=1, Max=5, Default=1, Increment=1, ValueName="Seconds", Callback=function(v) LagDelay=v end})
+
+RunService.RenderStepped:Connect(function()
+    if FakeLag then
+        for _,plr in pairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local hrp = plr.Character.HumanoidRootPart
+                hrp.Anchored = true
+                task.delay(LagDelay, function()
+                    if FakeLag and hrp then
+                        hrp.Anchored = false
+                    end
+                end)
+            end
+        end
+    end
+end)
+
+-- FOV Changer
+local FOVEnabled=false
+local FOVValue=120
+TabMisc:AddToggle({
+    Name="FOV Changer",
+    Default=false,
+    Callback=function(v)
+        FOVEnabled=v
+        if not v then
+            Camera.FieldOfView=70
+        end
+    end
+})
+TabMisc:AddSlider({
+    Name="FOV Value",
+    Min=70,
+    Max=150,
+    Default=120,
+    Increment=1,
+    ValueName="°",
+    Callback=function(v)
+        FOVValue=v
+        if FOVEnabled then
+            Camera.FieldOfView=v
+        end
+    end
+})
+
+-- TAB HITBOX
+local TabHitbox = Window:MakeTab({Name="Hitbox", Icon="rbxassetid://4483345998", PremiumOnly=false})
+local HitboxEnabled=false
+local HitboxSize=5
+local HitboxTransparency=0.5
+
+TabHitbox:AddToggle({
+    Name="Hitbox Expander",
+    Default=false,
+    Callback=function(v) HitboxEnabled=v end
+})
+TabHitbox:AddSlider({
+    Name="Hitbox Size",
+    Min=2,
+    Max=15,
+    Default=5,
+    Increment=1,
+    ValueName="Size",
+    Callback=function(v) HitboxSize=v end
+})
+TabHitbox:AddSlider({
+    Name="Hitbox Transparency",
+    Min=0,
+    Max=10,
+    Default=5,
+    Increment=1,
+    ValueName="0-1",
+    Callback=function(v) HitboxTransparency=v/10 end
+})
+
+-- Loop apply hitbox
+RunService.RenderStepped:Connect(function()
+    for _,plr in pairs(Players:GetPlayers()) do
+        if plr~=LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp=plr.Character.HumanoidRootPart
+            if HitboxEnabled then
+                hrp.Size=Vector3.new(HitboxSize,HitboxSize,HitboxSize)
+                hrp.Transparency=HitboxTransparency
+                hrp.CanCollide=false
+            else
+                hrp.Size=Vector3.new(2,2,1)
+                hrp.Transparency=1
+            end
+        end
+    end
+end)
+
+-- 🌐 Tab Kill Player
+local TabKill = Window:MakeTab({
+    Name = "Teleport Player",
+    Icon = "rbxassetid://7734053495",
+    PremiumOnly = false
+})
+
+-- Toggle Follow Murder (di dalam Tab Kill Player)
+local followMurder = false
+local followConn
+
+TabKill:AddToggle({
+    Name = "Follow Murder",
+    Default = false,
+    Callback = function(state)
+        followMurder = state
+
+        if followMurder then
+            followConn = RunService.Heartbeat:Connect(function()
+                local lp = LocalPlayer
+                local char = lp.Character
+                if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+                local hrp = char.HumanoidRootPart
+
+                -- Cari Murder di setiap heartbeat
+                for _,plr in pairs(game.Players:GetPlayers()) do
+                    if plr ~= lp and (plr.Backpack:FindFirstChild("Knife") or (plr.Character and plr.Character:FindFirstChild("Knife"))) then
+                        local targetChar = plr.Character
+                        if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+                            -- teleport di belakang Murder
+                            hrp.CFrame = targetChar.HumanoidRootPart.CFrame * CFrame.new(0,0,0)
+                        end
+                        break
+                    end
+                end
+            end)
+        else
+            if followConn then
+                followConn:Disconnect()
+                followConn = nil
+            end
+        end
+    end
+})
+
+-- 📦 Function buat kill target
+local function killTarget(player)
+    local char = LocalPlayer.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+    local hrp = char.HumanoidRootPart
+
+    -- Teleport langsung ke target
+    local targetChar = player.Character
+    if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+        hrp.CFrame = targetChar.HumanoidRootPart.CFrame * CFrame.new(0,0,2)
+
+        -- Cari tool (pisau/pistol) di backpack
+        local tool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if tool then
+            tool.Parent = char
+            -- Simulasi klik
+            pcall(function()
+                tool:Activate()
+            end)
+        end
+    end
+end
+
+-- 🔴 Kill Murder
+TabKill:AddButton({
+    Name = "Teleport Murder",
+    Callback = function()
+        for _,plr in pairs(game.Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Backpack:FindFirstChild("Knife") or (plr.Character and plr.Character:FindFirstChild("Knife")) then
+                killTarget(plr)
+            end
+        end
+    end
+})
+
+-- 🔵 Kill Sheriff
+TabKill:AddButton({
+    Name = "Teleport Sheriff",
+    Callback = function()
+        for _,plr in pairs(game.Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Backpack:FindFirstChild("Gun") or (plr.Character and plr.Character:FindFirstChild("Gun")) then
+                killTarget(plr)
+            end
+        end
+    end
+})
+
+-- 🌐 Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+local hiddenFling = false
+local flingThread
+
+-- pastiin folder/placeholder ada
+if not ReplicatedStorage:FindFirstChild("juisdfj0i32i0eidsuf0iok") then
+    local detection = Instance.new("Decal")
+    detection.Name = "juisdfj0i32i0eidsuf0iok"
+    detection.Parent = ReplicatedStorage
+end
+
+-- fungsi fling
+local function fling()
+    local lp = LocalPlayer
+    local c, hrp, vel, movel = nil, nil, nil, 0.1
+
+    while hiddenFling do
+        RunService.Heartbeat:Wait()
+        c = lp.Character
+        hrp = c and c:FindFirstChild("HumanoidRootPart")
+
+        if hrp then
+            vel = hrp.Velocity
+            hrp.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
+            RunService.RenderStepped:Wait()
+            hrp.Velocity = vel
+            RunService.Stepped:Wait()
+            hrp.Velocity = vel + Vector3.new(0, movel, 0)
+            movel = -movel
+        end
+    end
+end
+
+-- 🔹 Toggle di Tab Kill Player
+TabKill:AddToggle({
+    Name = "Touch Fling",
+    Default = false,
+    Callback = function(state)
+        hiddenFling = state
+        if hiddenFling then
+            flingThread = coroutine.create(fling)
+            coroutine.resume(flingThread)
+        else
+            hiddenFling = false
+        end
+    end
+})
+
+OrionLib:Init()    end
     if plr.Backpack:FindFirstChild("Gun") or (plr.Character and plr.Character:FindFirstChild("Gun")) then
         return "Sheriff"
     end

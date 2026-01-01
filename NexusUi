@@ -1,0 +1,695 @@
+-- NexusUI Library - WindUI Clone v1.6.6
+-- Complete with draggable mobile support
+
+local NexusUI = {}
+NexusUI.__index = NexusUI
+NexusUI.Version = "1.6.6"
+
+-- Theme System
+local Themes = {
+    Dark = {
+        Main = Color3.fromHex("#1a1a1a"),
+        Secondary = Color3.fromHex("#2d2d2d"),
+        Accent = Color3.fromHex("#30ff6a"),
+        Text = Color3.fromHex("#ffffff")
+    }
+}
+
+-- Services
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+-- Window storage
+local NexusWindows = {}
+
+-- Main Constructor
+function NexusUI:CreateWindow(config)
+    local self = setmetatable({}, NexusUI)
+    
+    self.Title = config.Title or "NexusUI Hub"
+    self.Size = config.Size or UDim2.new(0, 500, 0, 400)
+    self.Position = config.Position or UDim2.new(0.5, -250, 0.5, -200)
+    self.Icon = config.Icon or "door-open"
+    self.Author = config.Author or "by .ftgs and .ftgs"
+    self.Theme = config.Theme or "Dark"
+    
+    -- Mobile detection
+    self.IsMobile = UserInputService.TouchEnabled
+    self.Dragging = false
+    self.DragStart = nil
+    self.DragPosition = nil
+    
+    self:BuildWindow()
+    self:BuildOpenButton()
+    
+    table.insert(NexusWindows, self)
+    return self
+end
+
+-- Window Construction
+function NexusUI:BuildWindow()
+    -- Main Container
+    self.MainFrame = Instance.new("Frame")
+    self.MainFrame.Name = "NexusUI_" .. self.Title
+    self.MainFrame.Size = self.Size
+    self.MainFrame.Position = self.Position
+    self.MainFrame.BackgroundColor3 = Themes[self.Theme].Main
+    self.MainFrame.BorderSizePixel = 0
+    self.MainFrame.ClipsDescendants = true
+    self.MainFrame.Parent = CoreGui
+    
+    -- Topbar
+    self.Topbar = Instance.new("Frame")
+    self.Topbar.Name = "Topbar"
+    self.Topbar.Size = UDim2.new(1, 0, 0, 40)
+    self.Topbar.BackgroundColor3 = Themes[self.Theme].Secondary
+    self.Topbar.BorderSizePixel = 0
+    self.Topbar.Parent = self.MainFrame
+    
+    -- Draggable system
+    local function BeginDrag(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            self.Dragging = true
+            self.DragStart = input.Position
+            self.DragPosition = self.MainFrame.Position
+            
+            if self.IsMobile then
+                self.Topbar.Size = UDim2.new(1, 0, 0, 60)
+            end
+        end
+    end
+    
+    local function EndDrag(input)
+        self.Dragging = false
+        if self.IsMobile then
+            self.Topbar.Size = UDim2.new(1, 0, 0, 40)
+        end
+    end
+    
+    local function UpdateDrag(input)
+        if self.Dragging then
+            local delta = input.Position - self.DragStart
+            self.MainFrame.Position = UDim2.new(
+                self.DragPosition.X.Scale,
+                self.DragPosition.X.Offset + delta.X,
+                self.DragPosition.Y.Scale,
+                self.DragPosition.Y.Offset + delta.Y
+            )
+        end
+    end
+    
+    self.Topbar.InputBegan:Connect(BeginDrag)
+    self.Topbar.InputEnded:Connect(EndDrag)
+    UserInputService.InputChanged:Connect(UpdateDrag)
+    
+    -- Title
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Name = "Title"
+    TitleLabel.Size = UDim2.new(1, -80, 1, 0)
+    TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Text = self.Title
+    TitleLabel.TextColor3 = Themes[self.Theme].Text
+    TitleLabel.TextSize = 14
+    TitleLabel.Font = Enum.Font.GothamSemibold
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TitleLabel.Parent = self.Topbar
+    
+    -- Close Button
+    local CloseButton = Instance.new("TextButton")
+    CloseButton.Name = "CloseButton"
+    CloseButton.Size = UDim2.new(0, 30, 0, 30)
+    CloseButton.Position = UDim2.new(1, -35, 0.5, -15)
+    CloseButton.AnchorPoint = Vector2.new(0, 0.5)
+    CloseButton.BackgroundColor3 = Color3.fromHex("#ff3b30")
+    CloseButton.BorderSizePixel = 0
+    CloseButton.Text = "×"
+    CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CloseButton.TextSize = 20
+    CloseButton.Font = Enum.Font.GothamBold
+    CloseButton.Parent = self.Topbar
+    
+    CloseButton.MouseButton1Click:Connect(function()
+        self.MainFrame:Destroy()
+        if self.OpenButton then
+            self.OpenButton.Visible = true
+        end
+    end)
+    
+    -- Content Area
+    self.ContentFrame = Instance.new("ScrollingFrame")
+    self.ContentFrame.Name = "Content"
+    self.ContentFrame.Size = UDim2.new(1, -10, 1, -50)
+    self.ContentFrame.Position = UDim2.new(0, 5, 0, 45)
+    self.ContentFrame.BackgroundTransparency = 1
+    self.ContentFrame.ScrollBarThickness = 3
+    self.ContentFrame.ScrollBarImageColor3 = Themes[self.Theme].Accent
+    self.ContentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    self.ContentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    self.ContentFrame.Parent = self.MainFrame
+    
+    local UIListLayout = Instance.new("UIListLayout")
+    UIListLayout.Padding = UDim.new(0, 10)
+    UIListLayout.Parent = self.ContentFrame
+    
+    -- Initially hidden
+    self.MainFrame.Visible = false
+end
+
+-- Open/Close Button
+function NexusUI:BuildOpenButton()
+    self.OpenButton = Instance.new("TextButton")
+    self.OpenButton.Name = "NexusUI_Open_" .. self.Title
+    self.OpenButton.Size = self.IsMobile and UDim2.new(0, 60, 0, 60) or UDim2.new(0, 40, 0, 40)
+    self.OpenButton.Position = UDim2.new(0, 20, 0, 20)
+    self.OpenButton.BackgroundColor3 = Themes[self.Theme].Accent
+    self.OpenButton.BorderSizePixel = 0
+    self.OpenButton.Text = self.Icon
+    self.OpenButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    self.OpenButton.TextSize = self.IsMobile and 18 or 14
+    self.OpenButton.Font = Enum.Font.GothamBold
+    self.OpenButton.Parent = CoreGui
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, self.IsMobile and 12 or 8)
+    UICorner.Parent = self.OpenButton
+    
+    self.OpenButton.MouseButton1Click:Connect(function()
+        self.MainFrame.Visible = not self.MainFrame.Visible
+        self.OpenButton.Visible = not self.MainFrame.Visible
+    end)
+end
+
+-- Tag System
+function NexusUI:Tag(config)
+    local TagFrame = Instance.new("Frame")
+    TagFrame.Name = "Tag"
+    TagFrame.Size = UDim2.new(0, 60, 0, 20)
+    TagFrame.Position = UDim2.new(1, -65, 0, 5)
+    TagFrame.BackgroundColor3 = config.Color or Color3.fromHex("#30ff6a")
+    TagFrame.BorderSizePixel = 0
+    TagFrame.Parent = self.Topbar
+    
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, config.Radius or 0)
+    UICorner.Parent = TagFrame
+    
+    local TagLabel = Instance.new("TextLabel")
+    TagLabel.Size = UDim2.new(1, 0, 1, 0)
+    TagLabel.BackgroundTransparency = 1
+    TagLabel.Text = config.Title or "v1.6.6"
+    TagLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TagLabel.TextSize = 10
+    TagLabel.Font = Enum.Font.GothamMedium
+    TagLabel.Parent = TagFrame
+    
+    return TagFrame
+end
+
+-- Tab System
+function NexusUI:Tab(config)
+    local Tab = {}
+    Tab.Title = config.Title or "Tab"
+    Tab.Locked = config.Locked or false
+    Tab.Elements = {}
+    
+    -- Create elements container
+    Tab.Container = Instance.new("Frame")
+    Tab.Container.Name = "Tab_" .. Tab.Title
+    Tab.Container.Size = UDim2.new(1, 0, 1, 0)
+    Tab.Container.BackgroundTransparency = 1
+    Tab.Container.Parent = self.ContentFrame
+    Tab.Container.Visible = false
+    
+    local ListLayout = Instance.new("UIListLayout")
+    ListLayout.Padding = UDim.new(0, 10)
+    ListLayout.Parent = Tab.Container
+    
+    -- Store tab
+    self.Tabs = self.Tabs or {}
+    table.insert(self.Tabs, Tab)
+    
+    -- Select first tab
+    if #self.Tabs == 1 then
+        Tab.Container.Visible = true
+    end
+    
+    -- Element Methods
+    function Tab:Colorpicker(config)
+        return self:_CreateColorpicker(config)
+    end
+    
+    function Tab:Dropdown(config)
+        return self:_CreateDropdown(config)
+    end
+    
+    function Tab:Toggle(config)
+        return self:_CreateToggle(config)
+    end
+    
+    function Tab:Slider(config)
+        return self:_CreateSlider(config)
+    end
+    
+    function Tab:Input(config)
+        return self:_CreateInput(config)
+    end
+    
+    function Tab:Label(config)
+        return self:_CreateLabel(config)
+    end
+    
+    function Tab:Button(config)
+        return self:_CreateButton(config)
+    end
+    
+    function Tab:Paragraph(config)
+        return self:_CreateParagraph(config)
+    end
+    
+    function Tab:Keybind(config)
+        return self:_CreateKeybind(config)
+    end
+    
+    -- Internal creation methods
+    function Tab:_CreateColorpicker(config)
+        local Colorpicker = {}
+        Colorpicker.Value = config.Default or Color3.fromRGB(0, 255, 0)
+        
+        local Element = Instance.new("Frame")
+        Element.Name = "Colorpicker_" .. config.Title
+        Element.Size = UDim2.new(1, -20, 0, 40)
+        Element.Position = UDim2.new(0, 10, 0, 0)
+        Element.BackgroundColor3 = Themes.Dark.Secondary
+        Element.BorderSizePixel = 0
+        Element.Parent = Tab.Container
+        
+        local UICorner = Instance.new("UICorner")
+        UICorner.CornerRadius = UDim.new(0, 6)
+        UICorner.Parent = Element
+        
+        -- Title
+        local Title = Instance.new("TextLabel")
+        Title.Name = "Title"
+        Title.Size = UDim2.new(0.7, 0, 1, 0)
+        Title.Position = UDim2.new(0, 10, 0, 0)
+        Title.BackgroundTransparency = 1
+        Title.Text = config.Title or "Colorpicker"
+        Title.TextColor3 = Themes.Dark.Text
+        Title.TextSize = 12
+        Title.Font = Enum.Font.GothamMedium
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.Parent = Element
+        
+        -- Color preview
+        local Preview = Instance.new("Frame")
+        Preview.Name = "Preview"
+        Preview.Size = UDim2.new(0, 30, 0, 30)
+        Preview.Position = UDim2.new(1, -40, 0.5, -15)
+        Preview.AnchorPoint = Vector2.new(0, 0.5)
+        Preview.BackgroundColor3 = Colorpicker.Value
+        Preview.BorderSizePixel = 0
+        Preview.Parent = Element
+        
+        local PreviewCorner = Instance.new("UICorner")
+        PreviewCorner.CornerRadius = UDim.new(0, 6)
+        PreviewCorner.Parent = Preview
+        
+        -- Click event
+        Preview.MouseButton1Click:Connect(function()
+            if config.Callback then
+                config.Callback(Colorpicker.Value)
+            end
+            print("Color selected:", Colorpicker.Value)
+        end)
+        
+        -- Methods
+        function Colorpicker:Set(value)
+            Colorpicker.Value = value
+            Preview.BackgroundColor3 = value
+        end
+        
+        function Colorpicker:Get()
+            return Colorpicker.Value
+        end
+        
+        table.insert(Tab.Elements, Colorpicker)
+        return Colorpicker
+    end
+    
+    function Tab:_CreateToggle(config)
+        local Toggle = {}
+        Toggle.Value = config.Value or false
+        
+        local Element = Instance.new("Frame")
+        Element.Name = "Toggle_" .. config.Title
+        Element.Size = UDim2.new(1, -20, 0, 40)
+        Element.Position = UDim2.new(0, 10, 0, 0)
+        Element.BackgroundColor3 = Themes.Dark.Secondary
+        Element.BorderSizePixel = 0
+        Element.Parent = Tab.Container
+        
+        local UICorner = Instance.new("UICorner")
+        UICorner.CornerRadius = UDim.new(0, 6)
+        UICorner.Parent = Element
+        
+        -- Title
+        local Title = Instance.new("TextLabel")
+        Title.Name = "Title"
+        Title.Size = UDim2.new(0.7, 0, 1, 0)
+        Title.Position = UDim2.new(0, 10, 0, 0)
+        Title.BackgroundTransparency = 1
+        Title.Text = config.Title or "Toggle"
+        Title.TextColor3 = Themes.Dark.Text
+        Title.TextSize = 12
+        Title.Font = Enum.Font.GothamMedium
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.Parent = Element
+        
+        -- Toggle switch
+        local Switch = Instance.new("Frame")
+        Switch.Name = "Switch"
+        Switch.Size = UDim2.new(0, 40, 0, 20)
+        Switch.Position = UDim2.new(1, -50, 0.5, -10)
+        Switch.AnchorPoint = Vector2.new(0, 0.5)
+        Switch.BackgroundColor3 = Color3.fromHex("#444444")
+        Switch.BorderSizePixel = 0
+        Switch.Parent = Element
+        
+        local SwitchCorner = Instance.new("UICorner")
+        SwitchCorner.CornerRadius = UDim.new(1, 0)
+        SwitchCorner.Parent = Switch
+        
+        -- Toggle thumb
+        local Thumb = Instance.new("Frame")
+        Thumb.Name = "Thumb"
+        Thumb.Size = UDim2.new(0, 16, 0, 16)
+        Thumb.Position = UDim2.new(0, 2, 0.5, -8)
+        Thumb.AnchorPoint = Vector2.new(0, 0.5)
+        Thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        Thumb.BorderSizePixel = 0
+        Thumb.Parent = Switch
+        
+        local ThumbCorner = Instance.new("UICorner")
+        ThumbCorner.CornerRadius = UDim.new(1, 0)
+        ThumbCorner.Parent = Thumb
+        
+        -- Toggle function
+        local function UpdateToggle()
+            if Toggle.Value then
+                Switch.BackgroundColor3 = Themes.Dark.Accent
+                Thumb.Position = UDim2.new(1, -18, 0.5, -8)
+            else
+                Switch.BackgroundColor3 = Color3.fromHex("#444444")
+                Thumb.Position = UDim2.new(0, 2, 0.5, -8)
+            end
+        end
+        
+        -- Click event
+        Element.MouseButton1Click:Connect(function()
+            Toggle.Value = not Toggle.Value
+            UpdateToggle()
+            if config.Callback then
+                config.Callback(Toggle.Value)
+            end
+            print("Toggle state:", Toggle.Value)
+        end)
+        
+        UpdateToggle()
+        
+        -- Methods
+        function Toggle:Set(value)
+            Toggle.Value = value
+            UpdateToggle()
+        end
+        
+        function Toggle:Get()
+            return Toggle.Value
+        end
+        
+        table.insert(Tab.Elements, Toggle)
+        return Toggle
+    end
+    
+    function Tab:_CreateSlider(config)
+        local Slider = {}
+        Slider.Min = config.Value.Min or 0
+        Slider.Max = config.Value.Max or 100
+        Slider.Value = config.Value.Default or 50
+        Slider.Step = config.Step or 1
+        
+        local Element = Instance.new("Frame")
+        Element.Name = "Slider_" .. config.Title
+        Element.Size = UDim2.new(1, -20, 0, 60)
+        Element.Position = UDim2.new(0, 10, 0, 0)
+        Element.BackgroundColor3 = Themes.Dark.Secondary
+        Element.BorderSizePixel = 0
+        Element.Parent = Tab.Container
+        
+        local UICorner = Instance.new("UICorner")
+        UICorner.CornerRadius = UDim.new(0, 6)
+        UICorner.Parent = Element
+        
+        -- Title
+        local Title = Instance.new("TextLabel")
+        Title.Name = "Title"
+        Title.Size = UDim2.new(1, -60, 0, 20)
+        Title.Position = UDim2.new(0, 10, 0, 5)
+        Title.BackgroundTransparency = 1
+        Title.Text = config.Title or "Slider"
+        Title.TextColor3 = Themes.Dark.Text
+        Title.TextSize = 12
+        Title.Font = Enum.Font.GothamMedium
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.Parent = Element
+        
+        -- Value display
+        local Value = Instance.new("TextLabel")
+        Value.Name = "Value"
+        Value.Size = UDim2.new(0, 50, 0, 20)
+        Value.Position = UDim2.new(1, -60, 0, 5)
+        Value.BackgroundTransparency = 1
+        Value.Text = tostring(Slider.Value)
+        Value.TextColor3 = Themes.Dark.Text
+        Value.TextSize = 12
+        Value.Font = Enum.Font.GothamMedium
+        Value.TextXAlignment = Enum.TextXAlignment.Right
+        Value.Parent = Element
+        
+        -- Slider track
+        local Track = Instance.new("Frame")
+        Track.Name = "Track"
+        Track.Size = UDim2.new(1, -20, 0, 4)
+        Track.Position = UDim2.new(0, 10, 1, -25)
+        Track.BackgroundColor3 = Color3.fromHex("#444444")
+        Track.BorderSizePixel = 0
+        Track.Parent = Element
+        
+        local TrackCorner = Instance.new("UICorner")
+        TrackCorner.CornerRadius = UDim.new(1, 0)
+        TrackCorner.Parent = Track
+        
+        -- Slider fill
+        local Fill = Instance.new("Frame")
+        Fill.Name = "Fill"
+        Fill.Size = UDim2.new((Slider.Value - Slider.Min) / (Slider.Max - Slider.Min), 0, 1, 0)
+        Fill.BackgroundColor3 = Themes.Dark.Accent
+        Fill.BorderSizePixel = 0
+        Fill.Parent = Track
+        
+        local FillCorner = Instance.new("UICorner")
+        FillCorner.CornerRadius = UDim.new(1, 0)
+        FillCorner.Parent = Fill
+        
+        -- Slider thumb
+        local Thumb = Instance.new("Frame")
+        Thumb.Name = "Thumb"
+        Thumb.Size = UDim2.new(0, 16, 0, 16)
+        Thumb.Position = UDim2.new(Fill.Size.X.Scale, -8, 0.5, -8)
+        Thumb.AnchorPoint = Vector2.new(0, 0.5)
+        Thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        Thumb.BorderSizePixel = 0
+        Thumb.Parent = Track
+        
+        local ThumbCorner = Instance.new("UICorner")
+        ThumbCorner.CornerRadius = UDim.new(1, 0)
+        ThumbCorner.Parent = Thumb
+        
+        -- Slider logic
+        local dragging = false
+        
+        local function UpdateSlider(value)
+            value = math.clamp(value, Slider.Min, Slider.Max)
+            if Slider.Step > 0 then
+                value = math.floor(value / Slider.Step) * Slider.Step
+            end
+            
+            Slider.Value = value
+            Fill.Size = UDim2.new((value - Slider.Min) / (Slider.Max - Slider.Min), 0, 1, 0)
+            Thumb.Position = UDim2.new(Fill.Size.X.Scale, -8, 0.5, -8)
+            Value.Text = tostring(value)
+            
+            if config.Callback then
+                config.Callback(value)
+            end
+            print("Slider value:", value)
+        end
+        
+        -- Drag events
+        local function BeginDrag(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+               input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+            end
+        end
+        
+        local function EndDrag(input)
+            dragging = false
+        end
+        
+        local function UpdateDrag(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement or 
+               input.UserInputType == Enum.UserInputType.Touch then
+                local relativeX = (input.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X
+                relativeX = math.clamp(relativeX, 0, 1)
+                local value = Slider.Min + relativeX * (Slider.Max - Slider.Min)
+                UpdateSlider(value)
+            end
+        end
+        
+        Track.InputBegan:Connect(BeginDrag)
+        Track.InputEnded:Connect(EndDrag)
+        UserInputService.InputChanged:Connect(UpdateDrag)
+        
+        -- Methods
+        function Slider:Set(value)
+            UpdateSlider(value)
+        end
+        
+        function Slider:Get()
+            return Slider.Value
+        end
+        
+        table.insert(Tab.Elements, Slider)
+        return Slider
+    end
+    
+    function Tab:_CreateDropdown(config)
+        local Dropdown = {}
+        Dropdown.Values = config.Values or {"Option 1", "Option 2", "Option 3"}
+        Dropdown.Value = config.Value or Dropdown.Values[1]
+        Dropdown.Multi = config.Multi or false
+        
+        local Element = Instance.new("Frame")
+        Element.Name = "Dropdown_" .. config.Title
+        Element.Size = UDim2.new(1, -20, 0, 40)
+        Element.Position = UDim2.new(0, 10, 0, 0)
+        Element.BackgroundColor3 = Themes.Dark.Secondary
+        Element.BorderSizePixel = 0
+        Element.Parent = Tab.Container
+        
+        local UICorner = Instance.new("UICorner")
+        UICorner.CornerRadius = UDim.new(0, 6)
+        UICorner.Parent = Element
+        
+        -- Title
+        local Title = Instance.new("TextLabel")
+        Title.Name = "Title"
+        Title.Size = UDim2.new(0.7, 0, 1, 0)
+        Title.Position = UDim2.new(0, 10, 0, 0)
+        Title.BackgroundTransparency = 1
+        Title.Text = config.Title or "Dropdown"
+        Title.TextColor3 = Themes.Dark.Text
+        Title.TextSize = 12
+        Title.Font = Enum.Font.GothamMedium
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.Parent = Element
+        
+        -- Selected value
+        local Selected = Instance.new("TextLabel")
+        Selected.Name = "Selected"
+        Selected.Size = UDim2.new(0, 100, 0, 20)
+        Selected.Position = UDim2.new(1, -110, 0.5, -10)
+        Selected.AnchorPoint = Vector2.new(0, 0.5)
+        Selected.BackgroundTransparency = 1
+        Selected.Text = tostring(Dropdown.Value)
+        Selected.TextColor3 = Themes.Dark.Text
+        Selected.TextTransparency = 0.7
+        Selected.TextSize = 11
+        Selected.Font = Enum.Font.Gotham
+        Selected.TextXAlignment = Enum.TextXAlignment.Right
+        Selected.Parent = Element
+        
+        -- Arrow
+        local Arrow = Instance.new("TextLabel")
+        Arrow.Name = "Arrow"
+        Arrow.Size = UDim2.new(0, 20, 0, 20)
+        Arrow.Position = UDim2.new(1, -25, 0.5, -10)
+        Arrow.AnchorPoint = Vector2.new(0, 0.5)
+        Arrow.BackgroundTransparency = 1
+        Arrow.Text = "▼"
+        Arrow.TextColor3 = Themes.Dark.Text
+        Arrow.TextTransparency = 0.7
+        Arrow.TextSize = 10
+        Arrow.Font = Enum.Font.GothamBold
+        Arrow.Parent = Element
+        
+        -- Click event
+        Element.MouseButton1Click:Connect(function()
+            if config.Callback then
+                config.Callback(Dropdown.Value)
+            end
+            print("Dropdown selected:", Dropdown.Value)
+        end)
+        
+        -- Methods
+        function Dropdown:Set(value)
+            Dropdown.Value = value
+            Selected.Text = tostring(value)
+        end
+        
+        function Dropdown:Get()
+            return Dropdown.Value
+        end
+        
+        table.insert(Tab.Elements, Dropdown)
+        return Dropdown
+    end
+    
+    -- Other element methods (simplified)
+    function Tab:_CreateInput(config)
+        local Input = {}
+        -- Input implementation
+        return Input
+    end
+    
+    function Tab:_CreateLabel(config)
+        local Label = {}
+        -- Label implementation
+        return Label
+    end
+    
+    function Tab:_CreateButton(config)
+        local Button = {}
+        -- Button implementation
+        return Button
+    end
+    
+    function Tab:_CreateParagraph(config)
+        local Paragraph = {}
+        -- Paragraph implementation
+        return Paragraph
+    end
+    
+    function Tab:_CreateKeybind(config)
+        local Keybind = {}
+        -- Keybind implementation
+        return Keybind
+    end
+    
+    return Tab
+end
+
+return NexusUI
